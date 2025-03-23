@@ -236,7 +236,6 @@ class RoasterMonitor(QMainWindow):
             times = np.array([t - first_timestamp for t in self.timestamps])
             
         temp1 = np.array(self.temp1_data, dtype=float)
-        #print(temp1)
         temp2 = np.array(self.temp2_data, dtype=float)
         
         # Update LCD displays with latest temperatures
@@ -262,9 +261,6 @@ class RoasterMonitor(QMainWindow):
         else:
             # If we don't have enough data for smoothing yet, plot raw data
             self.temp1_curve.setData(times, temp1)
-            print(times)
-            print(temp1)
-            print("----------")
             self.temp2_curve.setData(times, temp2)
         
         # Update progress bar if roast is in progress
