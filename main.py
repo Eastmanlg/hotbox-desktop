@@ -69,7 +69,7 @@ class RoasterMonitor(QMainWindow):
         
         # Target Temp Input
         self.target_temp = QSpinBox()
-        self.target_temp.setRange(350, 700)
+        self.target_temp.setRange(100, 700)
         self.target_temp.setValue(640)
         self.target_temp.valueChanged.connect(self.update_target_lines)
 
@@ -94,13 +94,6 @@ class RoasterMonitor(QMainWindow):
         controls_layout.addWidget(self.accT_display)
         
         layout.addLayout(controls_layout)
-        
-        # Roast Progress Bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        layout.addWidget(QLabel("Roast Progress:"))
-        layout.addWidget(self.progress_bar)
 
         # Crack Buttons
         btn_crack_layout = QGridLayout()
@@ -124,9 +117,9 @@ class RoasterMonitor(QMainWindow):
         self.smooth_slider = QSlider(Qt.Orientation.Horizontal)
         self.smooth_slider.setMinimum(1)
         self.smooth_slider.setMaximum(40)
-        self.smooth_slider.setValue(5)
+        self.smooth_slider.setValue(15)
         self.smooth_slider.valueChanged.connect(self.update_smoothing)
-        self.smooth_value_label = QLabel("5s")
+        self.smooth_value_label = QLabel("15s")
         
         smooth_layout.addWidget(smooth_label)
         smooth_layout.addWidget(self.smooth_slider)
@@ -262,13 +255,6 @@ class RoasterMonitor(QMainWindow):
             # If we don't have enough data for smoothing yet, plot raw data
             self.temp1_curve.setData(times, temp1)
             self.temp2_curve.setData(times, temp2)
-        
-        # Update progress bar if roast is in progress
-        if self.roast_started and self.start_time:
-            elapsed_time = (datetime.now() - self.start_time).total_seconds()
-            target_time_seconds = self.target_time.time().minute() * 60 + self.target_time.time().second()
-            progress_percent = min(100, (elapsed_time / target_time_seconds) * 100)
-            self.progress_bar.setValue(int(progress_percent))
 
     def record_first_crack(self):
         if not self.roast_started:
@@ -342,7 +328,6 @@ class RoasterMonitor(QMainWindow):
         self.iso_timestamps.clear()
         self.temp1_data.clear()
         self.temp2_data.clear()
-        self.progress_bar.setValue(0)
         self.notes.clear()
         self.roast_started = False
         self.start_time = None
@@ -354,6 +339,11 @@ class RoasterMonitor(QMainWindow):
         self.first_crack_btn.setEnabled(True)
         self.second_crack_btn.setText("Second Crack")
         self.second_crack_btn.setEnabled(True)
+
+        #reset graph
+        self.temp1_curve.setData([], [])
+        self.temp2_curve.setData([], [])
+        
         
     def save_data(self):
         if not self.timestamps:
