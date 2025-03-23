@@ -19,10 +19,10 @@ class BLEHandler:
         self.ENV_SENSE_TEMP2_UUID = "0000{0:x}-0000-1000-8000-00805f9b34fb".format(0x2A1C)
 
     def _decode_temperature(self, data):
-        temp = struct.unpack("<i", data)[0]
+        temp = struct.unpack("<i", data)[0] / 100
         
-        print(temp)
-        return struct.unpack("<i", data)[0] / 100
+        #print(temp)
+        return temp
 
     def _callback(self, sender: bleak.BleakGATTCharacteristic, data: bytearray):
         temp = None if not data else self._decode_temperature(data)
