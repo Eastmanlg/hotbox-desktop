@@ -10,6 +10,7 @@ from queue import Queue
 from collections import deque
 from ble_handler import BLEHandler
 from datetime import datetime, timedelta
+import statistics
 
 class RoasterMonitor(QMainWindow):
     def __init__(self):
@@ -21,8 +22,8 @@ class RoasterMonitor(QMainWindow):
         self.ble_handler = BLEHandler(self.data_queue)
         self.timestamps = deque(maxlen=3600)  # Store up to 1 hour of data
         self.iso_timestamps = deque(maxlen=3600)
-        self.temp1_data = deque(maxlen=3600)  # Grill temperature
-        self.temp2_data = deque(maxlen=3600)  # Ambient temperature
+        self.grill_temp_data = deque(maxlen=3600)  # Grill temperature
+        self.drum_temp_data = deque(maxlen=3600)  # Drum temperature
 
         # Roast state
         self.roast_started = False
@@ -51,8 +52,8 @@ class RoasterMonitor(QMainWindow):
         self.graph.setLabel("bottom", "Time (mm:ss)")
         self.graph.showGrid(x=True, y=True)
         
-        self.temp1_curve = self.graph.plot(pen=pg.mkPen('r', width=3), name="Grill Temp")
-        self.temp2_curve = self.graph.plot(pen=pg.mkPen('b', width=2), name="Ambient Temp")
+        self.grill_temp_curve = self.graph.plot(pen=pg.mkPen('r', width=3), name="Grill Temp")
+        self.drum_temp_curve = self.graph.plot(pen=pg.mkPen('g', width=2), name="Drum Temp")
         
         layout.addWidget(self.graph)
         
@@ -66,15 +67,23 @@ class RoasterMonitor(QMainWindow):
         self.grillT_display.setStyleSheet("background-color: black; color: red;")
         controls_layout.addWidget(QLabel("Grill Temp:"))
         controls_layout.addWidget(self.grillT_display)
+
+        # LCD Display for Ambient Temperature
+        self.accT_display = QLCDNumber()
+        self.accT_display.setDigitCount(3)
+        self.accT_display.setSegmentStyle(QLCDNumber.SegmentStyle.Flat)
+        self.accT_display.setStyleSheet("background-color: black; color: green;")
+        controls_layout.addWidget(QLabel("Drum Temp:"))
+        controls_layout.addWidget(self.accT_display)
         
-        # Target Temp Input
-        self.target_temp = QSpinBox()
-        self.target_temp.setRange(100, 700)
-        self.target_temp.setValue(640)
-        self.target_temp.valueChanged.connect(self.update_target_lines)
+        # Grill Target Temp Input
+        self.grill_target_temp = QSpinBox()
+        self.grill_target_temp.setRange(100, 700)
+        self.grill_target_temp.setValue(640) # grill_target_temp initial
+        self.grill_target_temp.valueChanged.connect(self.update_target_lines)
 
         controls_layout.addWidget(QLabel("Target Temp:"))
-        controls_layout.addWidget(self.target_temp)
+        controls_layout.addWidget(self.grill_target_temp)
 
         # Target Time Input
         self.target_time = QTimeEdit()
@@ -85,13 +94,7 @@ class RoasterMonitor(QMainWindow):
         controls_layout.addWidget(QLabel("Target Time:"))
         controls_layout.addWidget(self.target_time)
         
-        # LCD Display for Ambient Temperature
-        self.accT_display = QLCDNumber()
-        self.accT_display.setDigitCount(3)
-        self.accT_display.setSegmentStyle(QLCDNumber.SegmentStyle.Flat)
-        self.accT_display.setStyleSheet("background-color: black; color: blue;")
-        controls_layout.addWidget(QLabel("Amb. Temp:"))
-        controls_layout.addWidget(self.accT_display)
+        
         
         layout.addLayout(controls_layout)
 
@@ -164,15 +167,15 @@ class RoasterMonitor(QMainWindow):
             self.graph.removeItem(self.target_temp_line)
         
         # Get target temperature
-        target_temp = self.target_temp.value()
+        grill_target_temp = self.grill_target_temp.value()
         
         # Create target temperature line
         self.target_temp_line = pg.InfiniteLine(
-            pos=target_temp, 
+            pos=grill_target_temp, 
             angle=0, 
-            pen=pg.mkPen('g', width=2, style=Qt.PenStyle.DashLine),
-            label=f"Target: {target_temp}°F",
-            labelOpts={'position': 0.1, 'color': 'g', 'fill': (0, 0, 0, 0)}
+            pen=pg.mkPen('b', width=1, style=Qt.PenStyle.DashLine),
+            label=f"{grill_target_temp}°F",
+            labelOpts={'position': 0.1, 'color': 'b', 'fill': (0, 0, 0, 0)}
         )
         self.graph.addItem(self.target_temp_line)
         
@@ -184,8 +187,8 @@ class RoasterMonitor(QMainWindow):
         # Set x-axis to go from 0 to target_time + 3 minutes (in seconds)
         self.graph.setXRange(0, target_time_seconds + 180)
         
-        # Set y-axis to go from 300 to target_temp + 50
-        self.graph.setYRange(0, target_temp + 100)
+        # Set y-axis to go from 300 to grill_target_temp + 50
+        self.graph.setYRange(0, grill_target_temp + 100)
 
     def format_seconds_to_mmss(self, seconds):
         minutes = int(seconds // 60)
@@ -202,15 +205,18 @@ class RoasterMonitor(QMainWindow):
             
             # Ensure both temperature arrays have the same length
             if uuid == self.ble_handler.ENV_SENSE_TEMP1_UUID:
-                self.temp1_data.append(temp)
-                if len(self.temp1_data) > len(self.temp2_data):
-                    self.temp2_data.append(self.temp2_data[-1] if self.temp2_data else None)
+                # filtered_temp = self.filter_spike(temp, self.grill_temp_data, window=10, std_multiplier=2.5, grace_period=5)
+                self.grill_temp_data.append(temp)
+                if len(self.grill_temp_data) > len(self.drum_temp_data):
+                    self.drum_temp_data.append(self.drum_temp_data[-1] if self.drum_temp_data else None)
             else:
-                self.temp2_data.append(temp)
-                if len(self.temp2_data) > len(self.temp1_data):
-                    self.temp1_data.append(self.temp1_data[-1] if self.temp1_data else None)
+                # print(f"raw temp: {temp}")
+                filtered_temp = self.filter_spike(temp, self.drum_temp_data, window=10, std_multiplier=10, grace_period=10)
+                self.drum_temp_data.append(filtered_temp)
+                if len(self.drum_temp_data) > len(self.grill_temp_data):
+                    self.grill_temp_data.append(self.grill_temp_data[-1] if self.grill_temp_data else None)
         
-        if not self.timestamps or len(self.temp1_data) == 0 or len(self.temp2_data) == 0:
+        if not self.timestamps or len(self.grill_temp_data) == 0 or len(self.drum_temp_data) == 0:
             return
             
         # Convert to numpy arrays for processing
@@ -228,24 +234,24 @@ class RoasterMonitor(QMainWindow):
             first_timestamp = self.timestamps[0]
             times = np.array([t - first_timestamp for t in self.timestamps])
             
-        temp1 = np.array(self.temp1_data, dtype=float)
-        temp2 = np.array(self.temp2_data, dtype=float)
-        
+        grill_temp = np.array(self.grill_temp_data, dtype=float)
+        drum_temp = np.array(self.drum_temp_data, dtype=float)
+
         # Update LCD displays with latest temperatures
-        if len(temp1) > 0:
-            self.grillT_display.display(int(temp1[-1]))
-        if len(temp2) > 0:
-            self.accT_display.display(int(temp2[-1]))
+        if len(grill_temp) > 0:
+            self.grillT_display.display(int(grill_temp[-1]))
+        if len(drum_temp) > 0:
+            self.accT_display.display(int(drum_temp[-1]))
         
         # Apply smoothing
         if len(times) >= self.smooth_window:
-            temp1_smooth = np.convolve(temp1, np.ones(self.smooth_window)/self.smooth_window, 'valid')
-            temp2_smooth = np.convolve(temp2, np.ones(self.smooth_window)/self.smooth_window, 'valid')
+            grill_temp_smooth = np.convolve(grill_temp, np.ones(self.smooth_window)/self.smooth_window, 'valid')
+            drum_temp_smooth = np.convolve(drum_temp, np.ones(self.smooth_window)/self.smooth_window, 'valid')
             times_smooth = times[self.smooth_window-1:]
             
             # Update plots
-            self.temp1_curve.setData(times_smooth, temp1_smooth)
-            self.temp2_curve.setData(times_smooth, temp2_smooth)
+            self.grill_temp_curve.setData(times_smooth, grill_temp_smooth)
+            self.drum_temp_curve.setData(times_smooth, drum_temp_smooth)
             
             # Update x-axis tick labels to show mm:ss format
             axis = self.graph.getAxis('bottom')
@@ -253,8 +259,8 @@ class RoasterMonitor(QMainWindow):
             axis.setTicks([ticks])
         else:
             # If we don't have enough data for smoothing yet, plot raw data
-            self.temp1_curve.setData(times, temp1)
-            self.temp2_curve.setData(times, temp2)
+            self.grill_temp_curve.setData(times, grill_temp)
+            self.drum_temp_curve.setData(times, drum_temp)
 
     def record_first_crack(self):
         if not self.roast_started:
@@ -310,7 +316,7 @@ class RoasterMonitor(QMainWindow):
         # Add initial note
         self.notes.clear()
         self.notes.insertPlainText(f"Roast started at {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        self.notes.insertPlainText(f"Target Temperature: {self.target_temp.value()}°F\n")
+        self.notes.insertPlainText(f"Target Temperature: {self.grill_target_temp.value()}°F\n")
         self.notes.insertPlainText(f"Target Time: {self.target_time.time().toString('mm:ss')}\n\n")
         
     def stop_logging(self):
@@ -326,8 +332,8 @@ class RoasterMonitor(QMainWindow):
     def reset_data(self):
         self.timestamps.clear()
         self.iso_timestamps.clear()
-        self.temp1_data.clear()
-        self.temp2_data.clear()
+        self.grill_temp_data.clear()
+        self.drum_temp_data.clear()
         self.notes.clear()
         self.roast_started = False
         self.start_time = None
@@ -341,18 +347,17 @@ class RoasterMonitor(QMainWindow):
         self.second_crack_btn.setEnabled(True)
 
         #reset graph
-        self.temp1_curve.setData([], [])
-        self.temp2_curve.setData([], [])
-        
-        
+        self.grill_temp_curve.setData([], [])
+        self.drum_temp_curve.setData([], [])
+             
     def save_data(self):
         if not self.timestamps:
             return
             
         # Create the data rows as a list of lists
         rows = []
-        for time, temp1, temp2 in zip(self.iso_timestamps, self.temp1_data, self.temp2_data):
-            rows.append([time, temp1, temp2])
+        for time, grill_temp, drum_temp in zip(self.iso_timestamps, self.grill_temp_data, self.drum_temp_data):
+            rows.append([time, grill_temp, drum_temp])
         
         filename = datetime.now().strftime('roast_data_%Y%m%d_%H%M%S.csv')
         profiles_folder = 'profiles'
@@ -366,7 +371,7 @@ class RoasterMonitor(QMainWindow):
         # Write data to CSV file
         with open(filename, 'w') as f:
             # Write header
-            f.write('time,temp1,temp2\n')
+            f.write('time,grill_temp,drum_temp\n')
             # Write data rows
             for row in rows:
                 f.write(f'{row[0]},{row[1]},{row[2]}\n')
@@ -384,6 +389,45 @@ class RoasterMonitor(QMainWindow):
     def closeEvent(self, event):
         self.stop_logging()
         event.accept()
+
+    
+
+    def filter_spike(self, new_value, data, window=10, std_multiplier=2.5, grace_period=5):
+        """
+        Filters out spikes using standard deviation of recent values.
+        If a new value is consistently out of expected range, it's eventually accepted.
+        """
+        if not hasattr(self, '_spike_buffer'):
+            self._spike_buffer = []
+
+        if len(data) < window:
+            self._spike_buffer.clear()
+            return new_value  # Accept due to lack of historical context
+
+        recent_values = list(data)[-window:]
+        mean = statistics.mean(recent_values)
+        std_dev = statistics.stdev(recent_values)
+        if std_dev <= 1: std_dev = 1  # Prevent division by zero or too small std_dev
+
+        # Accept if within normal range
+        # if std_dev == 0 or abs(new_value - mean) <= std_multiplier * std_dev:
+        #     self._spike_buffer.clear()
+        #     return new_value
+        if abs(new_value - mean) <= std_multiplier:  # Allow a fixed range of 15°F for now
+            self._spike_buffer.clear()
+            print( f"Accepting value:\t{new_value}")
+            return new_value
+
+        # Otherwise treat as potential spike and buffer it
+        self._spike_buffer.append(new_value)
+        if len(self._spike_buffer) >= grace_period:
+            avg = sum(self._spike_buffer) / len(self._spike_buffer)
+            self._spike_buffer.clear()
+            print (f"Returning buffer avg: {avg}")
+            return avg  # Accept the average of buffered outliers
+        print (f"Spike:\t{new_value}\tAllowed Range: ({mean - std_multiplier} - {mean + std_multiplier})")
+        # print (f"Spike:\t{new_value}\tAllowed Range: ({mean - std_multiplier * std_dev:.2f} - {mean + std_multiplier * std_dev:.2f})")
+        return data[-1]  # Reject spike for now
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
