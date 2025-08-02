@@ -54,6 +54,8 @@ class RoasterMonitor(QMainWindow):
         
         self.grill_temp_curve = self.graph.plot(pen=pg.mkPen('r', width=3), name="Grill Temp")
         self.drum_temp_curve = self.graph.plot(pen=pg.mkPen('g', width=2), name="Drum Temp")
+        self.ghost_drum_curve = self.graph.plot(pen=pg.mkPen((150, 150, 150), width=2, style=Qt.PenStyle.DashLine), name="Ghost Drum")
+        self.ghost_grill_curve = self.graph.plot(pen=pg.mkPen((200, 100, 100), width=1, style=Qt.PenStyle.DashLine), name="Ghost Grill")
         
         layout.addWidget(self.graph)
         
@@ -145,6 +147,9 @@ class RoasterMonitor(QMainWindow):
         btn_control_layout.addWidget(self.stop_btn, 0, 1)
         btn_control_layout.addWidget(self.reset_btn, 0, 2)
         btn_control_layout.addWidget(self.save_btn, 0, 3)
+        self.load_ghost_btn = QPushButton("Load Ghost")
+        self.load_ghost_btn.clicked.connect(self.load_ghost_profile)
+        btn_control_layout.addWidget(self.load_ghost_btn, 1, 0)
         layout.addLayout(btn_control_layout)
         
         self.setGeometry(100, 100, 900, 800)
@@ -281,6 +286,34 @@ class RoasterMonitor(QMainWindow):
             self.first_crack_btn.setText("First Crack Recorded")
         
         self.notes.insertPlainText(note)
+    def load_ghost_profile(self):
+        from PyQt6.QtWidgets import QFileDialog
+        filename, _ = QFileDialog.getOpenFileName(self, "Open Ghost Profile", "", "CSV Files (*.csv)")
+        if not filename:
+            return
+
+        times = []
+        grill_temps = []
+        drum_temps = []
+
+        with open(filename, 'r') as f:
+            next(f)  # skip header
+            for i, line in enumerate(f):
+                parts = line.strip().split(',')
+                if len(parts) != 3:
+                    continue
+                _, grill_str, drum_str = parts
+                try:
+                    grill = float(grill_str)
+                    drum = float(drum_str)
+                    grill_temps.append(grill)
+                    drum_temps.append(drum)
+                    times.append(i)  # simple time base
+                except ValueError:
+                    continue
+
+        self.ghost_grill_curve.setData(times, grill_temps)
+        self.ghost_drum_curve.setData(times, drum_temps)
 
     def record_second_crack(self):
         if not self.roast_started:
@@ -434,3 +467,4 @@ if __name__ == '__main__':
     window = RoasterMonitor()
     window.show()
     sys.exit(app.exec())
+    
