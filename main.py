@@ -24,6 +24,7 @@ class RoasterMonitor(QMainWindow):
         self.iso_timestamps = deque(maxlen=3600)
         self.grill_temp_data = deque(maxlen=3600)  # Grill temperature
         self.drum_temp_data = deque(maxlen=3600)  # Drum temperature
+        self.ror_data = deque(maxlen=3600) # Rate of Rise 
 
         # Roast state
         self.roast_started = False
@@ -56,6 +57,7 @@ class RoasterMonitor(QMainWindow):
         self.drum_temp_curve = self.graph.plot(pen=pg.mkPen('g', width=2), name="Drum Temp")
         self.ghost_drum_curve = self.graph.plot(pen=pg.mkPen((150, 150, 150), width=2, style=Qt.PenStyle.DashLine), name="Ghost Drum")
         self.ghost_grill_curve = self.graph.plot(pen=pg.mkPen((200, 100, 100), width=1, style=Qt.PenStyle.DashLine), name="Ghost Grill")
+        self.ror_curve = self.graph.plot(pen=pg.mkPen('orange', width=2), name="RoR")
         
         layout.addWidget(self.graph)
         
@@ -70,13 +72,21 @@ class RoasterMonitor(QMainWindow):
         controls_layout.addWidget(QLabel("Grill Temp:"))
         controls_layout.addWidget(self.grillT_display)
 
-        # LCD Display for Ambient Temperature
+        # LCD Display for Drum Temperature
         self.accT_display = QLCDNumber()
         self.accT_display.setDigitCount(3)
         self.accT_display.setSegmentStyle(QLCDNumber.SegmentStyle.Flat)
         self.accT_display.setStyleSheet("background-color: black; color: green;")
         controls_layout.addWidget(QLabel("Drum Temp:"))
         controls_layout.addWidget(self.accT_display)
+
+        # LCD Display for RoR
+        self.ror_display = QLCDNumber()
+        self.ror_display.setDigitCount(3)
+        self.ror_display.setSegmentStyle(QLCDNumber.SegmentStyle.Flat)
+        self.ror_display.setStyleSheet("background-color: black; color: orange;")
+        controls_layout.addWidget(QLabel("RoR:"))
+        controls_layout.addWidget(self.ror_display)
         
         # Grill Target Temp Input
         self.grill_target_temp = QSpinBox()
@@ -216,8 +226,8 @@ class RoasterMonitor(QMainWindow):
                     self.drum_temp_data.append(self.drum_temp_data[-1] if self.drum_temp_data else None)
             else:
                 # print(f"raw temp: {temp}")
-                filtered_temp = self.filter_spike(temp, self.drum_temp_data, window=10, std_multiplier=10, grace_period=10)
-                self.drum_temp_data.append(filtered_temp)
+                # filtered_temp = self.filter_spike(temp, self.drum_temp_data, window=10, std_multiplier=10, grace_period=10)
+                self.drum_temp_data.append(temp)
                 if len(self.drum_temp_data) > len(self.grill_temp_data):
                     self.grill_temp_data.append(self.grill_temp_data[-1] if self.grill_temp_data else None)
         
@@ -247,16 +257,26 @@ class RoasterMonitor(QMainWindow):
             self.grillT_display.display(int(grill_temp[-1]))
         if len(drum_temp) > 0:
             self.accT_display.display(int(drum_temp[-1]))
+        if hasattr(self, 'ror_data') and len(self.ror_data) > 0:
+                self.ror_display.display(int(self.ror_data[-1]))
         
         # Apply smoothing
         if len(times) >= self.smooth_window:
             grill_temp_smooth = np.convolve(grill_temp, np.ones(self.smooth_window)/self.smooth_window, 'valid')
             drum_temp_smooth = np.convolve(drum_temp, np.ones(self.smooth_window)/self.smooth_window, 'valid')
             times_smooth = times[self.smooth_window-1:]
+
+            # Calculate Rate of Rise (RoR) 
+            ror = np.diff(drum_temp_smooth) * (60 / np.diff(times[self.smooth_window-1:]))  # °F/min
+            ror = np.append(ror, ror[-1])  # pad last value to match length
+            self.ror_data = ror
             
             # Update plots
             self.grill_temp_curve.setData(times_smooth, grill_temp_smooth)
             self.drum_temp_curve.setData(times_smooth, drum_temp_smooth)
+            # Raise RoR values to sit visibly in the graph
+            ror_offset = ror + 300  # Lift above baseline
+            self.ror_curve.setData(times_smooth, ror_offset)
             
             # Update x-axis tick labels to show mm:ss format
             axis = self.graph.getAxis('bottom')
